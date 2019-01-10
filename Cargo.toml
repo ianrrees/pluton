@@ -1,0 +1,11 @@
+[package]
+name = "looking_glass"
+version = "0.1.0"
+authors = ["Ian Rees <ian.rees@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+bytes = "0.4"
+# hid depends on libhidapi; on Ubuntu 18.04: #apt install libhidapi-dev
+hid = "0.4.1"
+serde_json = "1.0.34"
