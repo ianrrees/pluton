@@ -1,9 +1,11 @@
 /// Tools for working with Looking Glass "holographic" displays
+/// Ian Rees 2019
 
 use bytes::{Bytes, BytesMut, BufMut};
 use hid;
+#[macro_use] extern crate serde_derive;
 use serde_json;
-use serde_json::{Value, Error};
+
 use std::time::Duration;
 use std::str;
 
@@ -14,11 +16,12 @@ const LOOKING_GLASS_PID:u16 = 0xEf7E;
 fn hid_multiread(handle: &mut hid::Handle) -> hid::Result<BytesMut> {
     let mut ret_buf = BytesMut::with_capacity(0);
     loop {
-        // On Ubuntu 18.04, we'll either need 64 or 68 bytes, apparently
-        // depending on whether libhidapi uses libusb or libhidraw.
+        // On Ubuntu 18.04, we'll either need 64 or 68 bytes, apparently (based on Python
+        // experiments) depending on whether libhidapi uses libusb or libhidraw.
         let mut this_read = BytesMut::with_capacity(128);
         this_read.resize(128, 0);
 
+        // Magic number warning: the read timeout is just a guess
         match handle.data().read(&mut this_read, Duration::from_millis(10))? {
             Some(count) => {
                 ret_buf.extend_from_slice(&this_read[..count]);
@@ -98,14 +101,26 @@ fn get_json_string(candidate: hid::Device) -> hid::Result<String> {
 }
 
 pub struct LookingGlass {
-    /// Serial number based on HID data, as string. This doesn't seem to be used as a serial number?
-    pub hid_serial: String,
+    /// Serial number as reported from EEPROM, not HID.  Seems to be the "real one"
+    pub serial: String,
+    pub pitch: f32,
+    pub slope: f32,
+    pub center: f32,
+    pub dpi: f32,
+    pub screen_w: u32, // Width in pixels
+    pub screen_h: u32, // Height in pixels
 }
 
 impl LookingGlass {
-    fn new() -> LookingGlass {
+    pub fn new() -> Self {
         LookingGlass {
-            hid_serial: String::new(),
+            serial: String::new(),
+            pitch: 0.0,
+            slope: 0.0,
+            center: 0.0,
+            dpi: 0.0,
+            screen_w: 0,
+            screen_h: 0,
         }
     }
 
@@ -116,27 +131,71 @@ impl LookingGlass {
         let hid_manager = hid::init()?;
 
         for candidate in hid_manager.find(Some(LOOKING_GLASS_VID), Some(LOOKING_GLASS_PID)) {
-            let mut glass = LookingGlass::new();
-
-            if let Some(hid_serial) = candidate.serial_number() {
-                glass.hid_serial = hid_serial;
+            if let Some(_hid_serial) = candidate.serial_number() {
+                // Don't actually care about the serial reported to HID, as it is not unique
             } else {
                 return Err(hid::Error::String(
-                    "Couldn't read HID serial number - might lack permissions?".to_string()));
+                    "Couldn't query HID device - might lack permissions?".to_string()));
             }
 
             let json_string = get_json_string(candidate)?;
-            match serde_json::from_str::<Value>(&json_string) {
-                Ok(json) => {
-                    println!("DPI is {}", json["DPI"]["value"]);
-                    println!("center is {}", json["center"]["value"]);
-                    // TODO Use the strongly-typed technique
-                    println!("All: {}", json)
-                },
-                Err(err) => return Err(hid::Error::String(err.to_string())),
-            };
 
-            glasses.push(glass);
+            // TODO refactor most of the below logic out, so we can test it
+
+            // Example json_string (newlines all added - none sent from Looking Glass):
+            // {"configVersion":"1.0","serial":"00297","pitch":{"value":49.81804275512695},
+            // "slope":{"value":5.044347763061523},"center":{"value":0.176902174949646},
+            // "viewCone":{"value":40.0},"invView":{"value":1.0},"verticalAngle":{"value":0.0},
+            // "DPI":{"value":338.0},"screenW":{"value":2560.0},"screenH":{"value":1600.0},
+            // "flipImageX":{"value":0.0},"flipImageY":{"value":0.0},"flipSubp":{"value":0.0}}
+
+            #[derive(Serialize, Deserialize)]
+            struct JSONValueMap {
+                value: f32
+            }
+
+            #[derive(Serialize, Deserialize)]
+            #[allow(non_snake_case)]
+            struct ConfigJSON {
+                configVersion: String,
+                serial: String,
+                pitch: JSONValueMap,
+                slope: JSONValueMap,
+                center: JSONValueMap,
+                viewCone: JSONValueMap,
+                invView: JSONValueMap,
+                verticalAngle: JSONValueMap,
+                DPI: JSONValueMap,
+                screenW: JSONValueMap,
+                screenH: JSONValueMap,
+                flipImageX: JSONValueMap,
+                flipImageY: JSONValueMap,
+                flipSubp: JSONValueMap,
+            }
+
+            match serde_json::from_str::<ConfigJSON>(&json_string) {
+                Ok(config) => {
+                    if config.configVersion == "1.0" {
+                        glasses.push(LookingGlass {
+                            serial: config.serial,
+                            pitch: config.pitch.value,
+                            slope: config.slope.value,
+                            center: config.center.value,
+                            dpi: config.DPI.value,
+                            screen_w: config.screenW.value as u32,
+                            screen_h: config.screenH.value as u32,
+                        });
+                    } else {
+                        // TODO better error message here...
+                        println!("Don't know how to read config version {}...", config.configVersion);
+                        continue;
+                    }
+                },
+                Err(err) => {
+                    println!("Error parsing JSON: {}", err.to_string());
+                    continue;
+                }
+            }
         }
 
         Ok(glasses)
@@ -155,8 +214,15 @@ mod tests {
                     println!("Didn't find any Looking Glasses");
                 }
 
-                for glass in glasses {
-                    println!("\t HID Serial\t {}", glass.hid_serial);
+                let mut index = 0;
+                for glass in &glasses {
+                    index += 1;
+                    println!("{} of {}", index, glasses.len());
+                    println!("\t Serial: {}", glass.serial);
+                    println!("\t {}x{} pixels, {} DPI", glass.screen_w, glass.screen_h, glass.dpi);
+                    println!("\t pitch: {}", glass.pitch);
+                    println!("\t slope: {}", glass.slope);
+                    println!("\t center: {}", glass.center);
                 }
             },
             Err(err) => {
