@@ -1,8 +1,12 @@
 [package]
-name = "looking_glass"
+name = "pluton"
 version = "0.1.0"
 authors = ["Ian Rees <ian.rees@gmail.com>"]
+repository = "https://github.com/ianrrees/pluton.git"
 edition = "2018"
+license = "LGPL-3.0"
+readme = "README.md"
+description = "Tools for working with Looking Glass \"holographic\" displays"
 
 [dependencies]
 bytes = "0.4"

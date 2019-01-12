@@ -1,4 +1,4 @@
-/// Tools for working with Looking Glass "holographic" displays
+/// Pluton: Tools for working with Looking Glass "holographic" displays
 /// Ian Rees 2019
 
 use bytes::{Bytes, BytesMut, BufMut};
