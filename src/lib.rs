@@ -65,7 +65,7 @@ impl LookingGlass {
 
                     match get_json_string(candidate) {
                         Ok(string) => json_to_glass(string),
-                        Err(err) => Err(Error::HIDError(err.to_string()))
+                        Err(error) => Err(Error::HIDError(error.to_string()))
                     }
                 } else {
                     Err(Error::HIDError("Error reading - may lack permissions?".to_string()))
@@ -77,17 +77,9 @@ impl LookingGlass {
     }
 }
 
-
+/// Parses JSON config string and instantiates a LookingGlass as appropriate
 fn json_to_glass(json_string: String) -> Result<LookingGlass>
 {
-    // Example json_string (newlines all added - none sent from Looking Glass):
-    //
-    // {"configVersion":"1.0","serial":"00297","pitch":{"value":49.81804275512695},
-    // "slope":{"value":5.044347763061523},"center":{"value":0.176902174949646},
-    // "viewCone":{"value":40.0},"invView":{"value":1.0},"verticalAngle":{"value":0.0},
-    // "DPI":{"value":338.0},"screenW":{"value":2560.0},"screenH":{"value":1600.0},
-    // "flipImageX":{"value":0.0},"flipImageY":{"value":0.0},"flipSubp":{"value":0.0}}
-
     #[derive(Serialize, Deserialize)]
     struct JSONValueMap {
         value: f32
@@ -129,8 +121,8 @@ fn json_to_glass(json_string: String) -> Result<LookingGlass>
                     config.configVersion)))
             }
         },
-        Err(err) => {
-            Err(Error::ParseError(format!("Error parsing JSON: {}", err.to_string())))
+        Err(error) => {
+            Err(Error::ParseError(format!("Error parsing JSON: {}", error.to_string())))
         }
     }
 }
@@ -219,14 +211,14 @@ fn get_json_string(candidate: hid::Device) -> hid::Result<String> {
 
     match str::from_utf8(&json) {
         Ok(yay) => Ok(yay.to_string()),
-        Err(e) => Err(hid::Error::String(e.to_string()))
+        Err(error) => Err(hid::Error::String(error.to_string()))
     }
 }
 
 
 #[cfg(test)]
 mod tests {
-    use crate::LookingGlass;
+    use super::*; // Brings in private methods too
 
     #[test]
     fn can_find() {
@@ -250,10 +242,37 @@ mod tests {
                     println!("\t slope: {}", glass.slope);
                     println!("\t center: {}", glass.center);
                 },
-                Err(err) => {
-                    println!("\t Error: {}", err.to_string());
+                Err(error) => {
+                    println!("\t Error: {}", error.to_string());
                     assert!(false);
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn test_json_to_glass_v1() {
+        let json = concat!(
+            r#"{"configVersion":"1.0","serial":"00297","pitch":{"value":49.81804275512695},"#,
+            r#""slope":{"value":5.044347763061523},"center":{"value":0.176902174949646},"#,
+            r#""viewCone":{"value":40.0},"invView":{"value":1.0},"verticalAngle":{"value":0.0},"#,
+            r#""DPI":{"value":338.0},"screenW":{"value":2560.0},"screenH":{"value":1600.0},"#,
+            r#""flipImageX":{"value":0.0},"flipImageY":{"value":0.0},"flipSubp":{"value":0.0}}"#
+            ).to_string();
+
+        match json_to_glass(json) {
+            Ok(glass) => {
+                // Not sure that comparing for equality with floats here is a great idea...
+                assert_eq!(glass.serial, "00297");
+                assert_eq!(glass.pitch, 49.81804275512695);
+                assert_eq!(glass.slope, 5.044347763061523);
+                assert_eq!(glass.center, 0.176902174949646);
+                assert_eq!(glass.dpi, 338.0);
+                assert_eq!(glass.screen_w, 2560);
+                assert_eq!(glass.screen_h, 1600);
+            },
+            Err(..) => {
+                assert!(false);
             }
         }
     }
