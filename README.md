@@ -1,5 +1,5 @@
 # pluton
-Tools for working with Looking Glass "holographic" displays
+Rust tools for working with Looking Glass "holographic" displays, also available from [crates.io](https://crates.io/crates/pluton).
 
 Pretty basic at the moment; can read calibration data from the Looking Glass' EEPROM based on work at https://github.com/lonetech/LookingGlass .
 
